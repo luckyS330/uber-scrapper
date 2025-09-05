@@ -221,10 +221,9 @@ async function uberScraper(targetUrl = null) {
   try {
     // Launch browser
     console.log("🌐 Launching browser...");
-    // Try multiple browser launch strategies for maximum compatibility
-    let browser;
-    const launchOptions = {
+    browser = await puppeteer.launch({
       headless: true,
+      executablePath: "/usr/bin/chromium-browser", // Set to true for production
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -232,49 +231,9 @@ async function uberScraper(targetUrl = null) {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor'
+        '--disable-gpu'
       ]
-    };
-    
-    try {
-      // First try: Use Puppeteer's bundled Chrome (most reliable)
-      browser = await puppeteer.launch(launchOptions);
-      console.log("✅ Using Puppeteer's bundled Chrome");
-    } catch (error) {
-      console.log("⚠️  Bundled Chrome failed, trying system browsers...");
-      
-      // Amazon Linux 2023 browser fallback strategy
-      const browserPaths = [
-        '/usr/bin/google-chrome',
-        '/usr/bin/google-chrome-stable', 
-        '/snap/bin/chromium',
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser'
-      ];
-      
-      let browserLaunched = false;
-      for (const browserPath of browserPaths) {
-        try {
-          console.log(`🔍 Trying browser: ${browserPath}`);
-          browser = await puppeteer.launch({
-            ...launchOptions,
-            executablePath: browserPath
-          });
-          console.log(`✅ Successfully launched: ${browserPath}`);
-          browserLaunched = true;
-          break;
-        } catch (browserError) {
-          console.log(`❌ Failed to launch ${browserPath}: ${browserError.message}`);
-          continue;
-        }
-      }
-      
-      if (!browserLaunched) {
-        throw new Error('Failed to launch any browser. Please install Chrome or Chromium.');
-      }
-    }
+    });
 
     const page = await browser.newPage();
     
@@ -286,13 +245,13 @@ async function uberScraper(targetUrl = null) {
     
     console.log("📱 Navigating to Uber Eats...");
     await page.goto(TARGET_URL, { 
-      waitUntil: 'domcontentloaded',
-      timeout: 45000 
+      waitUntil: 'networkidle2',
+      timeout: 60000 
     });
     
-    // Wait for the page to load (reduced for performance)
+    // Wait for the page to load
     console.log("⏳ Waiting for page to load...");
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
     
     // Check if we need to handle any popups or cookies
     try {
@@ -463,8 +422,9 @@ async function uberScraper(targetUrl = null) {
     console.log("🔍 Extracting menu data...");
     
     // Debug: Take a screenshot to see what the page looks like
-    // Skip screenshot in production for faster scraping
-    console.log("⚡ Skipping screenshot for faster scraping...");
+    console.log("📸 Taking screenshot for debugging...");
+    await page.screenshot({ path: 'debug_page.png', fullPage: true });
+    console.log("📸 Screenshot saved as debug_page.png");
     
     // Debug: Log the page HTML structure
     const pageContent = await page.content();
@@ -1198,97 +1158,277 @@ async function uberScraper(targetUrl = null) {
         console.log("🔍 Extracting images from modals for items without images...");
         let modalImageCount = 0;
         
+        // TEST MODE: Only process first 5 items for quick testing
+        const TEST_MODE = process.env.TEST_MODE === 'true' || process.argv.includes('--test');
+        let processedCount = 0;
+        const MAX_TEST_ITEMS = 5;
+        
+        if (TEST_MODE) {
+          console.log("🧪 TEST MODE: Only processing first 5 items without images");
+        }
+        
         for (const category of menuData) {
           for (const item of category.items) {
             if (item.image) {
               continue; // Skip items that already have images
             }
             
+            if (TEST_MODE && processedCount >= MAX_TEST_ITEMS) {
+              console.log(`🧪 TEST MODE: Stopping after ${MAX_TEST_ITEMS} items`);
+              break;
+            }
+            
+            processedCount++;
+            console.log(`\n🔍 Processing item ${processedCount}: "${item.name}"`);
+            
             try {
               // Find the menu item element to click
               let clicked = false;
               
-              // Strategy 1: Find by exact text match
-              const items = await page.$$('[data-testid^="store-item-"], [data-testid*="menu-item"], .menu-item, [role="button"]');
-              for (const itemEl of items) {
-                try {
-                  const text = await page.evaluate(el => el.textContent, itemEl);
-                  if (text && (text.includes(item.name) || item.name.includes(text.trim()))) {
-                    // Check if this element is clickable
-                    const isClickable = await page.evaluate(el => {
-                      const style = window.getComputedStyle(el);
-                      return style.cursor === 'pointer' || el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || el.onclick !== null;
-                    }, itemEl);
+              console.log(`🔍 Searching for clickable element for: "${item.name}"`);
+              
+              // Strategy 1: Find by exact text match with improved selectors
+              const itemSelectors = [
+                '[data-testid^="store-item-"]',
+                '[data-testid*="menu-item"]',
+                '[data-testid*="item-"]',
+                '.menu-item',
+                '[role="button"]',
+                'button',
+                'a[href*="#"]',
+                '[class*="item"]',
+                '[class*="product"]'
+              ];
+              
+              for (const selector of itemSelectors) {
+                if (clicked) break;
+                
+                const items = await page.$$(selector);
+                for (const itemEl of items) {
+                  try {
+                    const text = await page.evaluate(el => el.textContent?.trim(), itemEl);
+                    const itemNameTrimmed = item.name.trim();
                     
-                    if (isClickable) {
-                      await itemEl.click();
-                      clicked = true;
-                      console.log(`🔄 Clicked on "${item.name}" to open modal`);
-                      break;
+                    // More flexible name matching
+                    if (text && (
+                      text.includes(itemNameTrimmed) || 
+                      itemNameTrimmed.includes(text) ||
+                      text.toLowerCase().includes(itemNameTrimmed.toLowerCase()) ||
+                      itemNameTrimmed.toLowerCase().includes(text.toLowerCase())
+                    )) {
+                      // Check if this element is clickable and visible
+                      const isClickable = await page.evaluate(el => {
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+                        return (
+                          (style.cursor === 'pointer' || 
+                           el.tagName === 'BUTTON' || 
+                           el.getAttribute('role') === 'button' || 
+                           el.onclick !== null ||
+                           el.closest('[role="button"]') ||
+                           el.closest('button')) &&
+                          rect.width > 0 && 
+                          rect.height > 0 &&
+                          style.visibility !== 'hidden' &&
+                          style.display !== 'none'
+                        );
+                      }, itemEl);
+                      
+                      if (isClickable) {
+                        await itemEl.scrollIntoView();
+                        await page.waitForTimeout(500);
+                        await itemEl.click();
+                        clicked = true;
+                        console.log(`✅ Clicked on "${item.name}" using selector: ${selector}`);
+                        break;
+                      }
                     }
+                  } catch (e) {
+                    continue;
                   }
-                } catch (e) {
-                  continue;
                 }
               }
               
-              // Strategy 2: Try clicking by text content using page.click
+              // Strategy 2: Try clicking by text content using page.evaluate with better targeting
               if (!clicked) {
                 try {
-                  await page.evaluate((itemName) => {
-                    const elements = document.querySelectorAll('*');
-                    for (const el of elements) {
-                      if (el.textContent && el.textContent.includes(itemName)) {
+                  const clickResult = await page.evaluate((itemName) => {
+                    const itemNameLower = itemName.toLowerCase().trim();
+                    
+                    // Look for elements containing the item name
+                    const allElements = document.querySelectorAll('*');
+                    const candidates = [];
+                    
+                    for (const el of allElements) {
+                      const text = el.textContent?.trim();
+                      if (text && (
+                        text.includes(itemName) ||
+                        text.toLowerCase().includes(itemNameLower) ||
+                        itemName.includes(text) ||
+                        itemNameLower.includes(text.toLowerCase())
+                      )) {
                         const rect = el.getBoundingClientRect();
-                        if (rect.width > 0 && rect.height > 0) {
-                          el.click();
-                          return true;
+                        if (rect.width > 50 && rect.height > 20) {
+                          candidates.push({
+                            element: el,
+                            text: text,
+                            rect: rect,
+                            isClickable: el.tagName === 'BUTTON' || 
+                                        el.getAttribute('role') === 'button' ||
+                                        el.onclick !== null ||
+                                        window.getComputedStyle(el).cursor === 'pointer' ||
+                                        el.closest('button') ||
+                                        el.closest('[role="button"]')
+                          });
                         }
                       }
                     }
-                    return false;
+                    
+                    // Sort by clickability and size (prefer clickable, larger elements)
+                    candidates.sort((a, b) => {
+                      if (a.isClickable && !b.isClickable) return -1;
+                      if (!a.isClickable && b.isClickable) return 1;
+                      return (b.rect.width * b.rect.height) - (a.rect.width * a.rect.height);
+                    });
+                    
+                    // Try to click the best candidate
+                    for (const candidate of candidates.slice(0, 3)) { // Try top 3 candidates
+                      try {
+                        candidate.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        candidate.element.click();
+                        return { success: true, text: candidate.text };
+                      } catch (e) {
+                        continue;
+                      }
+                    }
+                    
+                    return { success: false };
                   }, item.name);
-                  clicked = true;
-                  console.log(`🔄 Clicked on "${item.name}" using evaluate method`);
+                  
+                  if (clickResult.success) {
+                    clicked = true;
+                    console.log(`✅ Clicked on "${item.name}" using text search: "${clickResult.text?.substring(0, 50)}..."`);
+                  }
                 } catch (e) {
-                  console.log(`⚠️ Could not click "${item.name}": ${e.message}`);
+                  console.log(`⚠️ Text search click failed for "${item.name}": ${e.message}`);
                 }
               }
               
-              if (clicked) {
-                await page.waitForTimeout(2000); // Wait for modal to open
-                
-                // Extract image from modal
-                const modalImage = await page.evaluate(() => {
-                  const modalSelectors = [
-                    '[role="dialog"] img[src*="uber.com"]',
-                    '[data-testid="item-details"] img[src*="uber.com"]',
-                    '[aria-modal="true"] img[src*="uber.com"]',
-                    '.modal img[src*="uber.com"]',
-                    '.overlay img[src*="uber.com"]'
-                  ];
-                  
-                  for (const selector of modalSelectors) {
-                    const img = document.querySelector(selector);
-                    if (img && img.src && !img.src.includes('logo')) {
-                      return img.src;
-                    }
+              // Strategy 3: Try XPath approach as last resort
+              if (!clicked) {
+                try {
+                  const xpath = `//text()[contains(., "${item.name}")]/ancestor-or-self::*[self::button or @role='button' or @onclick][1]`;
+                  const [element] = await page.$x(xpath);
+                  if (element) {
+                    await element.scrollIntoView();
+                    await page.waitForTimeout(500);
+                    await element.click();
+                    clicked = true;
+                    console.log(`✅ Clicked on "${item.name}" using XPath`);
                   }
-                  return null;
+                } catch (e) {
+                  console.log(`⚠️ XPath click failed for "${item.name}": ${e.message}`);
+                }
+              }
+              
+              if (!clicked) {
+                console.log(`❌ Could not find clickable element for "${item.name}"`);
+              }
+              
+              if (clicked) {
+                await page.waitForTimeout(3000); // Increased wait time for modal to fully load
+                
+                // Extract image from modal with improved selectors
+                const modalImage = await page.evaluate(() => {
+                  // Wait for modal content to load
+                  let attempts = 0;
+                  const maxAttempts = 10;
+                  
+                  const findModalImage = () => {
+                    const modalSelectors = [
+                      // More specific Uber Eats modal selectors
+                      '[role="dialog"] img[src*="tb-static.uber.com"]',
+                      '[role="dialog"] img[src*="uber.com"]',
+                      '[aria-modal="true"] img[src*="tb-static.uber.com"]',
+                      '[aria-modal="true"] img[src*="uber.com"]',
+                      '[data-testid*="modal"] img[src*="tb-static.uber.com"]',
+                      '[data-testid*="modal"] img[src*="uber.com"]',
+                      '[data-testid*="dialog"] img[src*="tb-static.uber.com"]',
+                      '[data-testid*="dialog"] img[src*="uber.com"]',
+                      '[data-testid="item-details"] img[src*="tb-static.uber.com"]',
+                      '[data-testid="item-details"] img[src*="uber.com"]',
+                      // Generic modal selectors
+                      '.modal img[src*="tb-static.uber.com"]',
+                      '.modal img[src*="uber.com"]',
+                      '.overlay img[src*="tb-static.uber.com"]',
+                      '.overlay img[src*="uber.com"]',
+                      // Any image in a modal-like container
+                      '[class*="modal"] img[src*="tb-static.uber.com"]',
+                      '[class*="modal"] img[src*="uber.com"]',
+                      '[class*="dialog"] img[src*="tb-static.uber.com"]',
+                      '[class*="dialog"] img[src*="uber.com"]',
+                      // Fallback: any large image that might be in a modal
+                      'img[src*="tb-static.uber.com"]',
+                      'img[src*="uber.com"]'
+                    ];
+                    
+                    for (const selector of modalSelectors) {
+                      const images = document.querySelectorAll(selector);
+                      for (const img of images) {
+                        if (img && img.src && 
+                            !img.src.includes('logo') && 
+                            !img.src.includes('icon') &&
+                            !img.src.includes('avatar') &&
+                            img.naturalWidth > 100 && 
+                            img.naturalHeight > 100) {
+                          // Check if image is visible and not in the background
+                          const rect = img.getBoundingClientRect();
+                          if (rect.width > 100 && rect.height > 100) {
+                            return img.src;
+                          }
+                        }
+                      }
+                    }
+                    return null;
+                  };
+                  
+                  // Try to find image immediately
+                  let image = findModalImage();
+                  if (image) return image;
+                  
+                  // If not found, wait a bit and try again (for lazy loading)
+                  return new Promise((resolve) => {
+                    const checkInterval = setInterval(() => {
+                      attempts++;
+                      image = findModalImage();
+                      
+                      if (image || attempts >= maxAttempts) {
+                        clearInterval(checkInterval);
+                        resolve(image);
+                      }
+                    }, 300); // Check every 300ms
+                  });
                 });
                 
                 if (modalImage) {
                   item.image = modalImage;
                   modalImageCount++;
-                  console.log(`🔄 Found modal image for "${item.name}": ${modalImage}`);
+                  console.log(`✅ Found modal image for "${item.name}": ${modalImage.substring(0, 80)}...`);
+                } else {
+                  console.log(`❌ No modal image found for "${item.name}"`);
                 }
                 
-                // Close modal
+                // Close modal with improved logic
+                let modalClosed = false;
                 const closeSelectors = [
                   '[data-testid="dialog-close"]',
+                  '[data-testid*="close"]',
                   '[aria-label="Close"]',
+                  '[aria-label*="close"]',
+                  'button[aria-label="Close"]',
                   '.close',
-                  '[data-testid="modal-close"]'
+                  '[data-testid="modal-close"]',
+                  '[role="button"][aria-label*="Close"]'
                 ];
                 
                 for (const closeSelector of closeSelectors) {
@@ -1296,7 +1436,8 @@ async function uberScraper(targetUrl = null) {
                     const closeBtn = await page.$(closeSelector);
                     if (closeBtn) {
                       await closeBtn.click();
-                      await page.waitForTimeout(500);
+                      await page.waitForTimeout(1000);
+                      modalClosed = true;
                       break;
                     }
                   } catch (e) {
@@ -1305,16 +1446,33 @@ async function uberScraper(targetUrl = null) {
                 }
                 
                 // Fallback: Press Escape to close modal
-                try {
-                  await page.keyboard.press('Escape');
-                  await page.waitForTimeout(500);
-                } catch (e) {
-                  // Continue if escape fails
+                if (!modalClosed) {
+                  try {
+                    await page.keyboard.press('Escape');
+                    await page.waitForTimeout(1000);
+                  } catch (e) {
+                    // Continue if escape fails
+                  }
+                }
+                
+                // Additional fallback: Click outside modal to close
+                if (!modalClosed) {
+                  try {
+                    await page.click('body', { offset: { x: 10, y: 10 } });
+                    await page.waitForTimeout(500);
+                  } catch (e) {
+                    // Continue if click fails
+                  }
                 }
               }
             } catch (e) {
               console.log(`⚠️ Could not extract modal image for "${item.name}": ${e.message}`);
             }
+          }
+          
+          // Break outer loop if in test mode and reached limit
+          if (TEST_MODE && processedCount >= MAX_TEST_ITEMS) {
+            break;
           }
         }
         
