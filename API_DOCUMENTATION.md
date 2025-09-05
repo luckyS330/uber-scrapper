@@ -90,73 +90,24 @@ Returns the current menu data for Il Caminetto Italian Restaurant.
 }
 ```
 
-#### Run Scraper (Background Processing)
+#### Run Scraper
 
 ```
 POST /api/v1/scrapers/ilcaminetto/scrape
 ```
 
-Triggers a new scraping session for Il Caminetto in the background to prevent timeout errors.
+Triggers a new scraping session for Il Caminetto.
 
-**Request Body:**
-
-```json
-{
-  "url": "http://orders.ilcaminetto.com.au/" // Optional, uses default if not provided
-}
-```
-
-**Response (Immediate):**
+**Response:**
 
 ```json
 {
   "success": true,
-  "message": "Scraping started in background",
-  "jobId": "ilcaminetto_1704454800000",
-  "statusEndpoint": "/api/v1/scrapers/status/ilcaminetto_1704454800000",
-  "estimatedTime": "2-3 minutes"
-}
-```
-
-#### Check Scraping Status
-
-```
-GET /api/v1/scrapers/status/:jobId
-```
-
-Check the status of a background scraping job.
-
-**Response (Running):**
-
-```json
-{
-  "success": true,
-  "jobId": "ilcaminetto_1704454800000",
-  "status": "running",
-  "scraper": "ilcaminetto",
-  "url": "http://orders.ilcaminetto.com.au/",
-  "startTime": "2024-01-15T10:30:00.000Z",
-  "elapsedTime": "45s",
-  "message": "Scraping in progress..."
-}
-```
-
-**Response (Completed):**
-
-```json
-{
-  "success": true,
-  "jobId": "ilcaminetto_1704454800000",
-  "status": "completed",
-  "scraper": "ilcaminetto",
-  "url": "http://orders.ilcaminetto.com.au/",
-  "startTime": "2024-01-15T10:30:00.000Z",
-  "completedTime": "2024-01-15T10:32:30.000Z",
-  "downloadUrl": "/api/v1/scrapers/ilcaminetto/download",
-  "result": {
+  "message": "Scraping completed successfully",
+  "data": {
     "success": true,
     "filename": "ilcaminetto_menu.json",
-    "totalItems": 69,
+    "totalItems": 51,
     "categories": [...],
     "sampleItem": {...}
   }
@@ -184,92 +135,27 @@ Returns the current menu data for Uber Eats.
 }
 ```
 
-#### Run Scraper (Background Processing)
+#### Run Scraper
 
 ```
 POST /api/v1/scrapers/uber/scrape
 ```
 
-Triggers a new scraping session for Uber Eats in the background to prevent timeout errors.
-
-**Request Body:**
-
-```json
-{
-  "url": "https://www.ubereats.com/store/..." // Optional, uses default if not provided
-}
-```
-
-**Response (Immediate):**
-
-```json
-{
-  "success": true,
-  "message": "Scraping started in background",
-  "jobId": "uber_1704454800000",
-  "statusEndpoint": "/api/v1/scrapers/status/uber_1704454800000",
-  "estimatedTime": "5-10 minutes"
-}
-```
-
-### 📊 Job Management
-
-#### Check Job Status
-
-```
-GET /api/v1/scrapers/status/:jobId
-```
-
-Check the status of any background scraping job.
-
-**Response (Running):**
-
-```json
-{
-  "success": true,
-  "jobId": "uber_1704454800000",
-  "status": "running",
-  "scraper": "uber",
-  "url": "https://www.ubereats.com/store/...",
-  "startTime": "2024-01-15T10:30:00.000Z",
-  "elapsedTime": "120s",
-  "message": "Scraping in progress..."
-}
-```
-
-**Response (Completed):**
-
-```json
-{
-  "success": true,
-  "jobId": "uber_1704454800000",
-  "status": "completed",
-  "scraper": "uber",
-  "startTime": "2024-01-15T10:30:00.000Z",
-  "completedTime": "2024-01-15T10:35:00.000Z",
-  "downloadUrl": "/api/v1/scrapers/uber/download",
-  "result": { ... }
-}
-```
-
-#### List All Jobs
-
-```
-GET /api/v1/scrapers/jobs
-```
-
-Get status of all scraping jobs.
+Triggers a new scraping session for Uber Eats.
 
 **Response:**
 
 ```json
 {
   "success": true,
-  "totalJobs": 5,
-  "runningJobs": 1,
-  "completedJobs": 3,
-  "failedJobs": 1,
-  "jobs": [...]
+  "message": "Scraping completed successfully",
+  "data": {
+    "success": true,
+    "filename": "uber_menu.json",
+    "totalItems": 3064,
+    "categories": [...],
+    "sampleItem": {...}
+  }
 }
 ```
 

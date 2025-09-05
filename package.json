@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "start": "node api.js && node server.js",
+    "dev": "node api.js && node --watch server.js",
     "test": "node test_api.js",
     "scrape:ilcaminetto": "node ilcaminetto_scraper.js",
     "scrape:uber": "node uber_scraper.js"

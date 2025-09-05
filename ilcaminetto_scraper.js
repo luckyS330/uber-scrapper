@@ -10,10 +10,9 @@ async function ilcaminettoScraper(targetUrl = null) {
   let browser;
   
   try {
-    // Try multiple browser launch strategies for maximum compatibility
-    let browser;
-    const launchOptions = {
+    browser = await puppeteer.launch({ 
       headless: true,
+      executablePath: "/usr/bin/chromium-browser",
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -21,67 +20,29 @@ async function ilcaminettoScraper(targetUrl = null) {
         "--disable-accelerated-2d-canvas",
         "--no-first-run",
         "--no-zygote",
-        "--disable-gpu",
-        "--disable-web-security",
-        "--disable-features=VizDisplayCompositor"
+        "--disable-gpu"
       ]
-    };
-    
-    try {
-      // First try: Use Puppeteer's bundled Chrome (most reliable)
-      browser = await puppeteer.launch(launchOptions);
-      console.log("✅ Using Puppeteer's bundled Chrome");
-    } catch (error) {
-      console.log("⚠️  Bundled Chrome failed, trying system browsers...");
-      
-      // Amazon Linux 2023 browser fallback strategy
-      const browserPaths = [
-        '/usr/bin/google-chrome',
-        '/usr/bin/google-chrome-stable', 
-        '/snap/bin/chromium',
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser'
-      ];
-      
-      let browserLaunched = false;
-      for (const browserPath of browserPaths) {
-        try {
-          console.log(`🔍 Trying browser: ${browserPath}`);
-          browser = await puppeteer.launch({
-            ...launchOptions,
-            executablePath: browserPath
-          });
-          console.log(`✅ Successfully launched: ${browserPath}`);
-          browserLaunched = true;
-          break;
-        } catch (browserError) {
-          console.log(`❌ Failed to launch ${browserPath}: ${browserError.message}`);
-          continue;
-        }
-      }
-      
-      if (!browserLaunched) {
-        throw new Error('Failed to launch any browser. Please install Chrome or Chromium.');
-      }
-    }
+    });
     const page = await browser.newPage();
     
     console.log("🍕 Navigating to Il Caminetto...");
     await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     
-    // Wait for the page to load completely with optimized timing
+    // Wait for the page to load completely with additional time for dynamic content
     try {
-      await page.waitForSelector('[id^="TabSelectOption-"]', { timeout: 15000 });
+      await page.waitForSelector('[id^="TabSelectOption-"]', { timeout: 30000 });
       console.log("✅ Menu categories loaded successfully");
-      // Reduced wait time for faster scraping
-      await page.waitForTimeout(2000);
     } catch (error) {
       console.log("⚠️  Categories not found, continuing with basic wait...");
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(5000);
     }
     
-    // Skip debug operations in production to improve performance
-    console.log("⚡ Skipping debug operations for faster scraping...");
+    console.log("📸 Taking screenshot for debugging...");
+    await page.screenshot({ path: 'ilcaminetto_debug.png', fullPage: true });
+    
+    const html = await page.content();
+    fs.writeFileSync('ilcaminetto_debug.html', html);
+    console.log(`📄 Page HTML length: ${html.length}`);
     
     console.log("🏪 Extracting restaurant information...");
     const restaurantData = await page.evaluate(() => {
